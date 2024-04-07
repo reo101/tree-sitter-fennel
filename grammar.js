@@ -38,15 +38,20 @@ const READER_MACROS = [
 	['unquote', ','],
 ];
 
+const READER_DISCARD = '#_';
+
 module.exports = grammar({
 	name: 'fennel',
 
 	extras: $ => [
 		/\s/,
 		$.comment,
+		// ISSUE: crashes
+		// $.discard,
 	],
 
 	externals: $ => [
+		$._discard,
 		...[...READER_MACROS].map(([name, _char]) => $[`_${name}_reader_macro_char`]),
 		$.__reader_macro_count,
 
@@ -80,6 +85,7 @@ module.exports = grammar({
 		)),
 
 		_sexp: $ => choice(
+			$.discard,
 			$._reader_macro,
 			$._special_override_symbol,
 			$.symbol_option,
@@ -106,6 +112,14 @@ module.exports = grammar({
 		_reader_macro: $ => choice(
 			...[...READER_MACROS].map(([name, _char]) => $[`${name}_reader_macro`]),
 		),
+
+		discard: $ => prec.right(PREC_IMPORTANT, repeat1($._discard_inner)),
+
+		_discard_inner: $ => prec.right(PREC_IMPORTANT, seq(
+			alias($._discard, READER_DISCARD),
+			optional($._discard_inner),
+			optional(field('value', $._sexp)),
+		)),
 
 		_list_content: $ => seq(
 			call($._sexp),

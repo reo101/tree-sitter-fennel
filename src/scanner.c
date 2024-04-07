@@ -8,6 +8,7 @@ typedef uint32_t uchar;
 
 typedef enum TokenType {
 	// Reader Macros
+	TK_DISCARD,
 	TK_HASHFN,
 	TK_QUOTE,
 	TK_QUASI_QUOTE,
@@ -75,6 +76,32 @@ static ScanResult scan_shebang(TSLexer *lexer, bool * const skipped_hashfn) {
 	}
 	lexer->mark_end(lexer);
 	lexer->result_symbol = TK_SHEBANG;
+	return SCAN_SUCCESS;
+}
+
+static ScanResult scan_discard(TSLexer *lexer, bool * const skipped_hashfn) {
+	if (!*skipped_hashfn) {
+		if (lexer->lookahead != '#') {
+			return SCAN_FAILURE;
+		}
+		*skipped_hashfn = true;
+		lexer->advance(lexer, false);
+	}
+
+	if (lexer->lookahead != '_') {
+		return SCAN_FAILURE;
+	}
+	*skipped_hashfn = false;
+	lexer->advance(lexer, false);
+
+	const bool is_valid_discard_position = !lexer->eof(lexer);
+
+	if (!is_valid_discard_position) {
+		return SCAN_FAILURE;
+	}
+
+	lexer->mark_end(lexer);
+	lexer->result_symbol = TK_DISCARD;
 	return SCAN_SUCCESS;
 }
 
@@ -147,6 +174,9 @@ ScanResult tree_sitter_fennel_external_scanner_scan(void *payload, TSLexer *lexe
 
 	// NOTE: If one reader macro is expected, then all of them are
 	if (valid_symbols[TK_HASHFN] && (skipped_whitespace || !valid_symbols[TK_COLON_STRING_START_MARK])) {
+		if (scan_discard(lexer, &skipped_hashfn) == SCAN_SUCCESS) {
+			return SCAN_SUCCESS;
+		}
 		if (scan_reader_macro(lexer, skipped_hashfn) == SCAN_SUCCESS) {
 			return SCAN_SUCCESS;
 		}

@@ -66,6 +66,10 @@
       "members": [
         {
           "type": "SYMBOL",
+          "name": "discard"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_reader_macro"
         },
         {
@@ -234,6 +238,63 @@
           "name": "unquote_reader_macro"
         }
       ]
+    },
+    "discard": {
+      "type": "PREC_RIGHT",
+      "value": 20,
+      "content": {
+        "type": "REPEAT1",
+        "content": {
+          "type": "SYMBOL",
+          "name": "_discard_inner"
+        }
+      }
+    },
+    "_discard_inner": {
+      "type": "PREC_RIGHT",
+      "value": 20,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_discard"
+            },
+            "named": false,
+            "value": "#_"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "_discard_inner"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "value",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_sexp"
+                }
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
     },
     "_list_content": {
       "type": "SEQ",
@@ -4002,6 +4063,10 @@
   "conflicts": [],
   "precedences": [],
   "externals": [
+    {
+      "type": "SYMBOL",
+      "name": "_discard"
+    },
     {
       "type": "SYMBOL",
       "name": "_hashfn_reader_macro_char"
