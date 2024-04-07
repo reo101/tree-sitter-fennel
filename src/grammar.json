@@ -68,7 +68,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "reader_macro"
+          "name": "_reader"
         },
         {
           "type": "SYMBOL",
@@ -167,6 +167,14 @@
         }
       ]
     },
+    "_reader_discard": {
+      "type": "STRING",
+      "value": "#_"
+    },
+    "discard": {
+      "type": "SYMBOL",
+      "name": "_reader_discard"
+    },
     "reader_macro": {
       "type": "SEQ",
       "members": [
@@ -185,6 +193,19 @@
             "type": "SYMBOL",
             "name": "_sexp"
           }
+        }
+      ]
+    },
+    "_reader": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "discard"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "reader_macro"
         }
       ]
     },

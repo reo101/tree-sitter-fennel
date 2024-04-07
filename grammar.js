@@ -31,6 +31,8 @@ const READER_MACRO_CHARS = [
 	',',
 ];
 
+const READER_DISCARD = '#_';
+
 module.exports = grammar({
 	name: 'fennel',
 
@@ -60,7 +62,7 @@ module.exports = grammar({
 
 		_sexp: $ => choice(
 			$._special_override_symbols,
-			$.reader_macro,
+			$._reader,
 			$.symbol,
 			$.multi_symbol,
 			$.list,
@@ -73,10 +75,16 @@ module.exports = grammar({
 
 		_reader_macro_char: $ => choice(...READER_MACRO_CHARS),
 
+		_reader_discard: $ => READER_DISCARD,
+
+		discard: $ => $._reader_discard,
+
 		reader_macro: $ => seq(
 			field('macro', $._reader_macro_char),
 			field('expression', $._sexp),
 		),
+
+		_reader: $ => choice($.discard, $.reader_macro),
 
 		_list_content: $ => seq(
 			repeat($._gap),
