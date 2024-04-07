@@ -1,4 +1,20 @@
 ===
+shebang
+===
+
+#!/usr/bin/env fennel
+(print "Yummy!")
+
+---
+
+(program
+  (shebang)
+  (list
+    call: (symbol)
+    item: (string
+            content: (string_content))))
+
+===
 function call
 ===
 
@@ -45,6 +61,7 @@ method call
             content: (string_content))
     item: (string
             content: (string_content))))
+<<<<<<< HEAD
 
 ===
 function/lambda definition
@@ -122,3 +139,34 @@ function/lambda definition
     item: (sequence)
     item: (string
             content: (string_content))))
+
+===
+discards
+===
+
+[1 #_ {:a :b} 3 #_ #_ (+ 4 5) 6 7 #_]
+
+---
+
+(program
+  (sequence
+    (number)
+    (discard)
+    (table
+      (table_pair
+        (string
+          (string_content))
+        (string
+          (string_content))))
+    (number)
+    (discard)
+    (discard)
+    (list
+      (symbol)
+      (number)
+      (number))
+    (number)
+    (number)
+    (discard)))
+=======
+>>>>>>> main

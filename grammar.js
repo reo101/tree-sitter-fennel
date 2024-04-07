@@ -1,19 +1,24 @@
-/**
- * Get literal out of a syntax node
- *
- * Example: get_literal(prec(1, '#')) == '#'
- *
- * @param {Object} node
- * @returns {string} Literal extracted from node
- */
-function get_literal(node) {
-	if (typeof node === 'string' || node instanceof RegExp) return node;
-	else if (node.type === 'PATTERN' || node.type === 'STRING') return node.value;
-	else return get_literal(node.content);
-}
+const _ = require('lodash');
+const {
+	kv_pair,
+	item,
+	call,
+	colon_string,
+	double_quote_string,
+	list,
+	sequence,
+	table,
+} = require('./grammar-lib/dsl.js');
+const {
+	require_dir,
+	flatten_extensions,
+} = require('./grammar-lib/fs.js');
+const {
+	PREC_LAST_RESORT,
+	PREC_IMPORTANT,
+} = require('./grammar-lib/prec.js');
 
-// Symbols that should take priority over the default symbol definition
-const SPECIAL_OVERRIDE_SYMBOLS = [
+const SPECIAL_STANDALONE_SYMBOLS = [
 	'#',
 	'?.',
 	'~=',
@@ -21,122 +26,133 @@ const SPECIAL_OVERRIDE_SYMBOLS = [
 	'$...',
 	'...',
 	'..',
-	prec.dynamic(-1, '.'),
+	'.',
 ];
 
-const READER_MACRO_CHARS = [
-	prec(1, '#'),
-	'\'',
-	'`',
-	',',
+const extensions = flatten_extensions(require_dir('extensions'));
+
+const READER_MACROS = [
+	['hashfn', '#'],
+	['quote', '\''],
+	['quasi_quote', '`'],
+	['unquote', ','],
 ];
+
+const READER_DISCARD = '#_';
 
 module.exports = grammar({
 	name: 'fennel',
 
-	extras: $ => [],
+	extras: $ => [
+		/\s/,
+		$.comment,
+	],
+
+	externals: $ => [
+		...[...READER_MACROS].map(([name, _char]) => $[`_${name}_reader_macro_char`]),
+		$.__reader_macro_count,
+
+		$.__colon_string_start_mark,
+		$.__colon_string_end_mark,
+
+		$.shebang,
+
+		$.__token_count,
+	],
+
+	inline: $ => [
+		..._.flatMap(extensions.inline, inline => inline($)),
+	],
 
 	conflicts: $ => [
-		[$.multi_symbol, $._sexp],
+		..._.flatMap(extensions.conflicts, conflicts => conflicts($)),
 	],
+
+	word: $ => $.symbol,
 
 	rules: {
 		program: $ => seq(
 			optional($.shebang),
-			repeat(choice(
-				$._sexp,
-				$._gap,
-			))
+			repeat($._sexp),
 		),
 
-		shebang: $ => /#!.*/,
-
-		_whitespace: $ => /\s+/,
-		comment: $ => /;.*\n?/,
-		_gap: $ => choice(
-			$._whitespace,
-			$.comment,
-		),
+		comment: $ => prec(PREC_LAST_RESORT, seq(
+			field('colon', alias(/;+/, ';')),
+			field('body', alias(/.*/, $.comment_body)),
+		)),
 
 		_sexp: $ => choice(
-			$._special_override_symbols,
-			$.reader_macro,
+			$._reader,
+			$._special_override_symbol,
+			$.symbol_option,
 			$.symbol,
 			$.multi_symbol,
+			$.multi_symbol_method,
+			$._form,
 			$.list,
 			$.sequence,
 			$.table,
 			$._literal,
 		),
 
-		_special_override_symbols: $ => alias(choice(...SPECIAL_OVERRIDE_SYMBOLS), $.symbol),
+		...Object.fromEntries(
+			[...READER_MACROS].map(([name, char]) => [
+				`${name}_reader_macro`,
+				$ => seq(
+					field('macro', alias($[`_${name}_reader_macro_char`], char)),
+					field('expression', $._sexp),
+				),
+			])
+		),
 
-		_reader_macro_char: $ => choice(...READER_MACRO_CHARS),
+		_reader_macro_char: $ => choice(
+			...[...READER_MACROS].map(([name, _char]) => $[`${name}_reader_macro`]),
+        ),
+
+		_reader_discard: $ => READER_DISCARD,
+
+		discard: $ => $._reader_discard,
 
 		reader_macro: $ => seq(
 			field('macro', $._reader_macro_char),
 			field('expression', $._sexp),
 		),
 
+		_reader: $ => choice($.discard, $.reader_macro),
+
 		_list_content: $ => seq(
-			repeat($._gap),
-			field('call', choice(
-				$.multi_symbol_method,
-				$._sexp,
-			)),
-			repeat(choice(
-				field('item', $._sexp),
-				$._gap,
-			)),
+			call($._sexp),
+			repeat(item($._sexp)),
 		),
 
-		list: $ => seq(
-			field('open', '('),
-			optional($._list_content),
-			field('close', ')'),
-		),
+		list: $ => list(optional($._list_content)),
 
-		sequence: $ => seq(
-			field('open', '['),
-			repeat(choice(
-				field('item', $._sexp),
-				$._gap,
-			)),
-			field('close', ']'),
-		),
+		...extensions.rules,
+		...extensions.forms,
 
-		table_pair: $ => prec.right(seq(
-			field('key', $._sexp),
-			// NOTE: The `optional` here kind of "normalizes" the tree if the table pair is not complete,
-			// as if it's in the process of typing.
-			optional(seq(
-				$._gap,
-				field('value', $._sexp),
-			)),
-		)),
+		_form: $ => choice(...[...Object.keys(extensions.forms)].map(form => $[form])),
 
-		table: $ => seq(
-			field('open', '{'),
-			repeat(choice(
-				field('item', $.table_pair),
-				$._gap,
-			)),
-			field('close', '}'),
-		),
+		sequence: $ => sequence(repeat(item($._sexp))),
 
-		_literal: $ => choice(
+		table_pair: $ => kv_pair($),
+
+		table: $ => prec(PREC_LAST_RESORT, table(repeat(item($.table_pair)))),
+
+		// NOTE: Last resort precedence here is nice to have for when forms define
+		// literal-specific syntax (mostly strings), like with metadata `:fnl/docstring`
+		// in a function form.
+		_literal: $ => prec.right(PREC_LAST_RESORT, choice(
 			$.string,
 			$.number,
 			$.boolean,
 			$.nil,
-		),
+		)),
 
 		nil: $ => 'nil',
-		boolean: $ => token(choice('true', 'false')),
+		boolean: $ => choice('true', 'false'),
 
-		_colon_string: $ => prec(2, seq(
-			field('open', ':'),
-			field('content', alias(choice(
+		_colon_string: $ => colon_string($, choice(
+			...[
 				// HACK(alexmozaidze): Fixes expressions such as:
 				// `:?.`
 				// `:true`
@@ -146,20 +162,22 @@ module.exports = grammar({
 				// and so on, being parsed as 2 separate tokens.
 				// Dynamic precedence could eliminate this HACK, but
 				// I would prefer to stray away from it.
-				...[...SPECIAL_OVERRIDE_SYMBOLS].map(get_literal),
-				$.boolean,
-				$.nil,
+				//
+				// TODO: Find a way to get rid of this HACK.
+				...SPECIAL_STANDALONE_SYMBOLS,
+				'nil',
+				'true',
+				'false',
 				/[^(){}\[\]"'~;,@`\s]+/,
-			), $.string_content)),
+			].map(tk => token.immediate(tk))
 		)),
 
-		_double_quote_string: $ => seq(
-			field('open', '"'),
-			field('content', alias(repeat(choice(
-				prec(1, /[^"\\]+/),
+		_double_quote_string_content: $ => prec.right(PREC_IMPORTANT, token.immediate(/[^"\\]+/)),
+		_double_quote_string: $ => double_quote_string($,
+			repeat(choice(
+				$._double_quote_string_content,
 				$.escape_sequence,
-			)), $.string_content)),
-			field('close', '"'),
+			)),
 		),
 
 		string: $ => choice(
@@ -173,10 +191,11 @@ module.exports = grammar({
 				/[^xu\d]/,
 				/\d{1,3}/,
 				/x[\da-fA-F]{2}/,
-				/u{[\da-fA-F]+}/,
+				/u\{[\da-fA-F]+\}/,
 			),
 		)),
 
+		// TODO: Separate floats from integers.
 		number: $ => {
 			const sign = choice('-', '+');
 			const digits = /\d[_\d]*/;
@@ -210,24 +229,33 @@ module.exports = grammar({
 			));
 		},
 
-		// NOTE: Due to special override symbol `.` we need dynamic precedence here
-		multi_symbol: $ => prec.dynamic(2, prec.right(seq(
+		multi_symbol: $ => seq(
 			field('base', alias($.symbol, $.symbol_fragment)),
 			repeat1(seq(
-				'.',
-				field('member', alias($.symbol, $.symbol_fragment) ),
+				token.immediate('.'),
+				field('member', $._multi_symbol_fragment),
 			)),
-		))),
+		),
 
-		multi_symbol_method: $ => prec(3, seq(
+		multi_symbol_method: $ => seq(
 			field('base', choice(
 				alias($.symbol, $.symbol_fragment),
 				$.multi_symbol,
 			)),
-			':',
-			field('method', alias($.symbol, $.symbol_fragment)),
-		)),
+			token.immediate(':'),
+			field('method', $._multi_symbol_fragment),
+		),
 
+		symbol_option: $ => /&[^(){}\[\]"'~;,@`.:\s]*/,
 		symbol: $ => /[^#(){}\[\]"'~;,@`.:\s][^(){}\[\]"'~;,@`.:\s]*/,
+
+		// NOTE: multi-symbol fragments starting from second position onwards have fewer restrictions on what
+		// symbols they may contain, which is why its regex is just a stripped down version of $.symbol.
+		_multi_symbol_fragment: $ => alias(token.immediate(/[^(){}\[\]"'~;,@`.:\s]+/), $.symbol_fragment),
+
+		_special_override_symbol: $ => alias(
+			prec(PREC_LAST_RESORT, choice(...SPECIAL_STANDALONE_SYMBOLS)),
+			$.symbol
+		),
 	},
 });
